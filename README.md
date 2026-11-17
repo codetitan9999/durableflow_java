@@ -1,83 +1,54 @@
 # DurableFlow
 
-DurableFlow Java is a Spring Boot workflow engine for multi-step background jobs, using PostgreSQL, Redis Streams, and a React operations dashboard. This is an independent Java repository: it contains no Go application source or Go benchmark results. The [original Go project](https://github.com/codetitan9999/DurableWorkFlowEngine) remains separate.
+DurableFlow is a Spring Boot workflow engine for background jobs that need to survive process restarts and worker failures. It runs multi-step workflows, records each attempt in PostgreSQL, and uses Redis Streams to deliver work to workers. A React dashboard shows execution history, retries, and tasks that need attention.
 
-**The one-minute insight:** Postgres decides what should happen; Redis delivers opportunities to do the work. Because delivery is at least once, workers re-check durable state and handlers protect side effects with persisted idempotency records.
+![DurableFlow dashboard with a completed two-step workflow](docs/screenshots/01-overview.png)
 
-[Architecture and ER diagram](ARCHITECTURE.md) · [LLD and class diagram](docs/low-level-design.md) · [API walkthrough](docs/postman/README.md) · [Migration status](docs/MIGRATION_PARITY.md)
-
-## Why durable workflows are hard
-
-A background job is straightforward until failure lands between two operations:
-
-- the database commit succeeds but queue publication does not
-- a worker performs work and crashes before acknowledging the message
-- a retry is scheduled and the process restarts
-- a permanently failed task needs to be repaired and replayed safely
-
-DurableFlow handles these cases with three invariants:
-
-1. **Postgres is authoritative.** Executions, tasks, attempts, retry times, dead-letter state, dispatch intent, and idempotency records are durable.
-2. **Every dispatch uses the transactional outbox.** Initial tasks, retries, next steps, and replays all enter Redis through the same path.
-3. **Duplicate delivery is expected.** Workers consult Postgres before execution; side-effecting handlers reserve durable idempotency keys.
-
-## Architecture
+## How It Works
 
 ```mermaid
 flowchart LR
-    Client["Dashboard / API client"] --> API["API + outbox publisher"]
-    API -->|transaction: execution, task, outbox| PG[("Postgres")]
-    API -->|publish pending outbox rows| Redis[("Redis Streams")]
-    Redis -->|read or reclaim| Worker["Worker"]
-    Worker -->|attempts, retry, result, next task| PG
-    Worker --> Handler["Idempotent handler"]
+    Client[API / dashboard] --> API[Spring Boot API]
+    API -->|execution + task + outbox| DB[(PostgreSQL)]
+    Publisher[Outbox publisher] -->|read pending events| DB
+    Publisher -->|publish| Redis[(Redis Streams)]
+    Redis --> Worker[Worker]
+    Worker -->|attempts + task state| DB
+    Worker --> Handler[Task handler]
 ```
 
-A workflow run follows one durable loop:
+Triggering a workflow commits the execution, its first task, and an outbox event in one database transaction. The publisher sends that event to Redis; a worker runs the handler and records the outcome. Success moves to the next step. Failure schedules a retry or dead-letters the task. If a worker disappears with a message pending, another consumer can reclaim it. Because messages may be delivered more than once, handlers use persisted idempotency records and cached responses.
 
-1. The API stores an execution, its first task, and an outbox row in one transaction.
-2. The publisher sends pending outbox events to a Redis consumer group.
-3. A worker loads authoritative task state, records an attempt, and runs the handler.
-4. Success creates the next task or completes the execution. Failure persists a future `next_run_at` or dead-letters the task.
-5. A crashed worker's pending message can be reclaimed with `XAUTOCLAIM`; replay resets eligible state and re-enters through the outbox.
+## What You Can Try
 
-See the [class and flow diagrams](docs/low-level-design.md) and [data model](ARCHITECTURE.md#data-model) for interfaces, transactions, and tables.
+| Capability | What the app does |
+| --- | --- |
+| Multi-step workflows | Runs a linear chain, passing one step's output to the next. |
+| Durable retries | Stores attempt history and the next run time in PostgreSQL. |
+| Dead-letter replay | Lists failed tasks and re-enters a selected task through the outbox. |
+| Worker recovery | Reclaims abandoned Redis consumer-group messages. |
+| Idempotent handlers | Reuses a completed handler response on duplicate delivery. |
+| Operations view | Shows execution snapshots, attempts, and errors; Prometheus, Grafana, and OpenTelemetry provide telemetry. |
 
-## What is implemented
+The included handlers (`sample.echo` and `notifications.send`) are demos; they do not call an external notification provider.
 
-- Definition-driven, linear multi-step workflows
-- Durable attempts and scheduled retries that survive restarts
-- Dead-letter inspection and replay through the normal dispatch path
-- Redis consumer-group recovery for stale pending messages
-- Handler-level idempotency with stored successful responses
-- Execution snapshots, Prometheus metrics, Grafana, and the React dashboard
-- Java unit and PostgreSQL/Redis Testcontainers integration tests
+## Run Locally
 
-![DurableFlow dashboard showing workflow controls and execution status](docs/screenshots/01-overview.png)
-
-## Verification
-
-`mvn verify` runs Java unit and Testcontainers integration tests for transactions, retries, replay, idempotency, Redis reclaim, and worker recovery. Before splitting the repositories, differential smoke checks compared key HTTP and failure paths with the original Go service. The five Java benchmark scenarios have been smoke-tested, but no representative Java capacity results are claimed. See the [validation checklist](docs/MIGRATION_PARITY.md) for remaining work.
-
-## Run locally
-
-Prerequisites: Docker and Docker Compose v2.
+Requires Docker and Docker Compose v2.
 
 ```bash
-cp .env.example .env
-docker compose up --build
+docker compose up --build -d
 ```
 
-Then open:
+Open the [dashboard](http://localhost:5173), create a workflow, then trigger an execution. The API is at [localhost:8080](http://localhost:8080/healthz); the worker health endpoint is at [localhost:8081](http://localhost:8081/healthz). Grafana is at [localhost:3000](http://localhost:3000) (`admin` / `admin`). The [Postman collection](docs/postman/README.md) provides a guided API run, including dead-letter replay.
 
-- Dashboard: [http://localhost:5173](http://localhost:5173)
-- API health: [http://localhost:8080/healthz](http://localhost:8080/healthz)
-- Worker health: [http://localhost:8081/healthz](http://localhost:8081/healthz)
-- Grafana: [http://localhost:3000](http://localhost:3000) (`admin` / `admin`)
+To stop the stack without deleting its PostgreSQL volume:
 
-Import the included [Postman collection and local environment](docs/postman/README.md) to create a workflow, trigger an execution, inspect its snapshot, and exercise dead-letter replay.
+```bash
+docker compose down
+```
 
-For a source-level check (Java 21 and Maven required):
+## Verification
 
 ```bash
 mvn verify
@@ -85,24 +56,13 @@ npm --prefix apps/web ci
 npm --prefix apps/web run build
 ```
 
-Run the Java benchmark driver against the Compose API:
+The Java tests cover definition validation, API responses, database transactions and rollback, retry scheduling, replay, idempotency conflicts, Redis reclaim, and worker recovery. PostgreSQL and Redis integration tests use Testcontainers. GitHub Actions runs the backend tests, frontend build, and script checks on pushes and pull requests. The [benchmark driver](docs/benchmarks.md) exercises the full API-to-worker path, but this repository does not claim a measured Java throughput limit yet.
 
-```bash
-mvn -q compile exec:java -Dexec.mainClass=io.durableflow.bench.BenchmarkMain -Dexec.args='--scenario success-linear --executions 25 --concurrency 5 --json --output-file benchmarks/java-local.json'
-```
+## Design Notes
 
-It supports `success-linear`, `success-deep-chain`, `retry-invalid-input`, `dead-letter-missing-handler`, and `replay-missing-handler`. Results from this runner are Java-only; no Go benchmark artifacts are included here.
+- [Architecture and ER diagram](ARCHITECTURE.md): components, persistence model, and recovery boundaries.
+- [Low-level design](docs/low-level-design.md): class and sequence diagrams for dispatch, retries, replay, and idempotency.
+- [Execution walkthrough](docs/happy-path.md): one request traced through the Java code.
+- [Operations](docs/operations.md): health checks, metrics, alerts, and troubleshooting.
 
-## Scope and tradeoffs
-
-DurableFlow intentionally favors a clear durability model over broad workflow syntax. Chaining is linear rather than a general DAG; definitions are not versioned; long-running tasks have no separate lease or heartbeat; multi-publisher behavior has not been stress-tested; and replay lacks a richer operator audit trail.
-
-## Go deeper
-
-- [Architecture](ARCHITECTURE.md): current Java system, data model, and recovery limits
-- [Low-level design](docs/low-level-design.md): Java class and sequence diagrams
-- [Happy path](docs/happy-path.md): shortest source-guided execution trace
-- [Benchmarks](docs/benchmarks.md): Java runner, scenarios, and measurement caveats
-- [Operations](docs/operations.md): health checks, metrics, alerts, and incident guidance
-- [Postman setup](docs/postman/README.md): runnable API happy path and replay flow
-- [Migration parity](docs/MIGRATION_PARITY.md): what is verified and what remains
+Current scope: workflows are linear rather than DAGs; definitions are not version-managed through the API; running tasks have no separate lease or fencing token; and multi-publisher outbox claiming has not been stress-tested. These are documented limits, not production guarantees.
