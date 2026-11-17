@@ -1,0 +1,12 @@
+.DS_Store
+.vscode/
+.env
+node_modules
+dist
+coverage
+tmp
+.cache
+*.tsbuildinfo
+apps/web/vite.config.js
+apps/web/vite.config.d.ts
+target/
