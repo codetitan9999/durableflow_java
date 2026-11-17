@@ -157,4 +157,4 @@ sequenceDiagram
 
 Replay keeps the original task ID, input, idempotency key, and attempt count. A replayed missing handler will dead-letter again; replay does not repair the workflow definition. The [repository integration tests](../src/test/java/io/durableflow/persistence/JdbcWorkflowStoreIntegrationTest.java) cover replay, retry, rollback, cached output, and attempt recovery.
 
-The [original Go implementation](https://github.com/codetitan9999/DurableWorkFlowEngine) is maintained in a separate repository.
+For checks against the behavior described here, see [verification and limits](verification.md).

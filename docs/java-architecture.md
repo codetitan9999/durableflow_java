@@ -19,7 +19,7 @@ flowchart LR
   Reservations --> PG
 ```
 
-`DURABLEFLOW_ROLE=api` runs the REST API and outbox publisher. `DURABLEFLOW_ROLE=worker` runs the Redis consumer and task worker. Both roles expose `/healthz` and `/metrics` and apply the same PostgreSQL migrations under the original advisory lock.
+`DURABLEFLOW_ROLE=api` runs the REST API and outbox publisher. `DURABLEFLOW_ROLE=worker` runs the Redis consumer and task worker. Both roles expose `/healthz` and `/metrics` and apply PostgreSQL migrations under an advisory lock.
 
 ## Class relationships
 
@@ -71,4 +71,4 @@ sequenceDiagram
 
 Replay locks a dead-lettered task, clears terminal state, returns the execution to `running`, and inserts a new outbox event in one transaction. Its task ID, input, idempotency key, and accumulated attempt count remain unchanged.
 
-For the tables and keys, see the [data model](../ARCHITECTURE.md#data-model) and [SQL migrations](../migrations/001_init.sql). For unresolved parity checks, see [MIGRATION_PARITY.md](MIGRATION_PARITY.md).
+For the tables and keys, see the [data model](../ARCHITECTURE.md#data-model) and [SQL migrations](../migrations/001_init.sql). For tested behavior and known limits, see [verification and limits](verification.md).

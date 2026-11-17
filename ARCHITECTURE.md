@@ -79,7 +79,7 @@ erDiagram
   }
 ```
 
-The [SQL migrations](migrations/001_init.sql) define the exact columns and constraints. The Java startup migrator uses the same migration filenames and PostgreSQL advisory lock as the Go baseline, so an existing compatible database can be read without schema conversion.
+The [SQL migrations](migrations/001_init.sql) define the exact columns and constraints. The startup migrator applies them under a PostgreSQL advisory lock so the API and worker can start against the same database safely.
 
 ## Execution Flow
 
@@ -97,4 +97,4 @@ The [SQL migrations](migrations/001_init.sql) define the exact columns and const
 - The source model permits overlapping attempts during recovery. There is no task lease, heartbeat, or fencing token. Outbox rows are not exclusively claimed by multiple publishers. These are known limits, not production guarantees.
 - Workflows are linear, not DAGs. Definitions have a `version` column but do not yet expose a version-management API.
 
-See [low-level design](docs/low-level-design.md) for class and sequence diagrams, [operations](docs/operations.md) for health and metrics, and [migration parity](docs/MIGRATION_PARITY.md) for verification evidence.
+See [low-level design](docs/low-level-design.md) for class and sequence diagrams, [operations](docs/operations.md) for health and metrics, and [verification and limits](docs/verification.md) for test evidence and known boundaries.

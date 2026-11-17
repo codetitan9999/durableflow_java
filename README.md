@@ -64,5 +64,6 @@ The Java tests cover definition validation, API responses, database transactions
 - [Low-level design](docs/low-level-design.md): class and sequence diagrams for dispatch, retries, replay, and idempotency.
 - [Execution walkthrough](docs/happy-path.md): one request traced through the Java code.
 - [Operations](docs/operations.md): health checks, metrics, alerts, and troubleshooting.
+- [Verification and limits](docs/verification.md): tested paths and remaining reliability boundaries.
 
 Current scope: workflows are linear rather than DAGs; definitions are not version-managed through the API; running tasks have no separate lease or fencing token; and multi-publisher outbox claiming has not been stress-tested. These are documented limits, not production guarantees.

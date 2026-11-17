@@ -18,4 +18,4 @@ Supported scenarios: `success-linear`, `success-deep-chain`, `retry-invalid-inpu
 
 All five scenarios completed small smoke runs against the Java API. These establish that the harness works; they are **not** capacity or latency claims. A representative Java load suite, repeated runs, resource observations, and failure-boundary measurements are still needed before citing performance numbers.
 
-For comparisons with the [Go project](https://github.com/codetitan9999/DurableWorkFlowEngine), use the same workload, hardware, Compose topology, and polling settings. Do not treat Go measurements as Java measurements.
+Publish performance numbers only with the workload, hardware, Compose topology, polling settings, and raw JSON artifacts used to produce them.
